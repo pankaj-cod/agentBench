@@ -27,6 +27,7 @@ class FailureCategory(StrEnum):
 
     HARNESS_ERROR = "HARNESS_ERROR"
     TOOL_FAILURE = "TOOL_FAILURE"
+    MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
     AGENT_ERROR = "AGENT_ERROR"
     TIMEOUT = "TIMEOUT"
     STEP_LIMIT = "STEP_LIMIT"
@@ -40,7 +41,7 @@ class FailureCategory(StrEnum):
 
     @property
     def source(self) -> FailureSource:
-        if self in (FailureCategory.HARNESS_ERROR, FailureCategory.TOOL_FAILURE):
+        if self in INFRASTRUCTURE_CATEGORIES:
             return FailureSource.INFRASTRUCTURE
         return FailureSource.AGENT
 
@@ -109,3 +110,8 @@ class Evaluation(DomainModel):
         if category is not None and category.source is not source:
             raise ValueError(f"category {category} belongs to source {category.source}")
         return self
+
+
+INFRASTRUCTURE_CATEGORIES = frozenset(
+    {FailureCategory.HARNESS_ERROR, FailureCategory.TOOL_FAILURE, FailureCategory.MODEL_UNAVAILABLE}
+)

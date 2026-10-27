@@ -15,6 +15,11 @@ class InvalidTaskError(AgentBenchError):
     """A task is misconfigured, e.g. it allows a tool that is not registered."""
 
 
+class AgentInfrastructureError(AgentBenchError):
+    """Raised by an agent when something it depends on (e.g. the model provider) is
+    unavailable. The runner ends the run with MODEL_UNAVAILABLE instead of AGENT_ERROR."""
+
+
 class ToolError(AgentBenchError):
     """A failure while validating or executing one tool call. Recorded in the trace and
     shown to the agent; never raised out of AgentRunner.run."""

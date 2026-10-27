@@ -15,6 +15,9 @@ class TerminationReason(StrEnum):
     RUN_TIMEOUT = "RUN_TIMEOUT"
     TOOL_FAILURE_EXHAUSTED = "TOOL_FAILURE_EXHAUSTED"
     AGENT_ERROR = "AGENT_ERROR"
+    # The model provider stayed unavailable (timeouts, rate limits, server errors) after
+    # bounded retries. Infrastructure, not agent behaviour.
+    MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
     HARNESS_ERROR = "HARNESS_ERROR"
 
     @property
@@ -24,6 +27,11 @@ class TerminationReason(StrEnum):
         if self is TerminationReason.HARNESS_ERROR:
             return AgentRunStatus.ERROR
         return AgentRunStatus.FAILED
+
+
+class ExecutionMode(StrEnum):
+    LIVE = "LIVE"  # the agent made its own decisions (a live model call, or rules)
+    RECORDED_RESPONSES = "RECORDED_RESPONSES"  # model responses replayed from a stored run
 
 
 class TraceEventType(StrEnum):

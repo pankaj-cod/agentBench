@@ -22,6 +22,18 @@ from agentbench.evaluation.metrics import (
     summarize,
 )
 
+# Categories that come from how execution ended (the "execution" check), as opposed to
+# answer or tool-use checks. Explicit rather than "precedence <= N", which broke when a
+# category was inserted.
+EXECUTION_CATEGORIES = {
+    FailureCategory.HARNESS_ERROR,
+    FailureCategory.TOOL_FAILURE,
+    FailureCategory.MODEL_UNAVAILABLE,
+    FailureCategory.AGENT_ERROR,
+    FailureCategory.TIMEOUT,
+    FailureCategory.STEP_LIMIT,
+}
+
 BENCH = BenchmarkRef(name="b", version="1", content_hash="0" * 64)
 AGENT = AgentConfigRef(label="a", agent_name="x", agent_version="1", limits=RunLimits())
 
@@ -52,7 +64,7 @@ def make_eval(
     else:
         source = category.source
         outcome = EvaluationOutcome.FAILED if source.value == "AGENT" else EvaluationOutcome.INVALID
-    execution = execution or (category if category and category.precedence <= 4 else None)
+    execution = execution or (category if category in EXECUTION_CATEGORIES else None)
     checks = (
         CheckResult(
             name="execution",

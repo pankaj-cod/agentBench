@@ -3,7 +3,12 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from agentbench.domain.enums import AgentRunStatus, TerminationReason, TraceEventType
+from agentbench.domain.enums import (
+    AgentRunStatus,
+    ExecutionMode,
+    TerminationReason,
+    TraceEventType,
+)
 
 
 class DomainModel(BaseModel):
@@ -45,12 +50,15 @@ class ToolCallDecision(DomainModel):
     # Untrusted: whatever the agent produced. The ToolRegistry validates it.
     arguments: Any = Field(default_factory=dict)
     usage: TokenUsage | None = None
+    # Extra facts for the trace, e.g. the normalised model response. Must be JSON.
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalAnswerDecision(DomainModel):
     kind: Literal["final_answer"] = "final_answer"
     answer: str
     usage: TokenUsage | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 Decision = Annotated[ToolCallDecision | FinalAnswerDecision, Field(discriminator="kind")]
@@ -116,6 +124,10 @@ class RunResult(DomainModel):
     # Totals over all decisions, or None unless every decision reported usage.
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    agent_config_hash: str | None = None  # set for configurable (model) agents
+    tool_schemas_hash: str | None = None  # hash of the tool schemas the agent was shown
+    execution_mode: ExecutionMode = ExecutionMode.LIVE
+    source_run_id: uuid.UUID | None = None  # the run this one re-executes, if any
     events: tuple[TraceEvent, ...]
 
     @model_validator(mode="after")

@@ -36,6 +36,7 @@ EVALUATOR_VERSION = "eval-1"  # bump whenever a check changes meaning
 TERMINATION_CATEGORY: dict[TerminationReason, FailureCategory] = {
     TerminationReason.HARNESS_ERROR: FailureCategory.HARNESS_ERROR,
     TerminationReason.TOOL_FAILURE_EXHAUSTED: FailureCategory.TOOL_FAILURE,
+    TerminationReason.MODEL_UNAVAILABLE: FailureCategory.MODEL_UNAVAILABLE,
     TerminationReason.AGENT_ERROR: FailureCategory.AGENT_ERROR,
     TerminationReason.RUN_TIMEOUT: FailureCategory.TIMEOUT,
     TerminationReason.MAX_STEPS_EXCEEDED: FailureCategory.STEP_LIMIT,

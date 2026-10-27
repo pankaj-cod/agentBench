@@ -102,6 +102,10 @@ def test_check_result_needs_category_exactly_when_failed() -> None:
         CheckResult(name="x", passed=False, failure_category=None, explanation="")
 
 
-def test_only_harness_and_tool_failures_are_infrastructure() -> None:
+def test_only_harness_tool_and_model_availability_failures_are_infrastructure() -> None:
     infra = {c for c in FailureCategory if c.source is FailureSource.INFRASTRUCTURE}
-    assert infra == {FailureCategory.HARNESS_ERROR, FailureCategory.TOOL_FAILURE}
+    assert infra == {
+        FailureCategory.HARNESS_ERROR,
+        FailureCategory.TOOL_FAILURE,
+        FailureCategory.MODEL_UNAVAILABLE,
+    }
