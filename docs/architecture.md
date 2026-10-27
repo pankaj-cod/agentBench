@@ -429,6 +429,12 @@ Each milestone ends with green CI and passing tests that demonstrate its criteri
 | M11 | Benchmark content | At least two example benchmarks covering success, tool failure and limit cases, with results documented in the README |
 | M12 | First real model adapter | Implements the `Agent` protocol; reports real token usage; tests use recorded responses only; credentials come from environment variables and are never logged |
 
+**Progress (2026-10-27):** M2, M3 and M4 are implemented. Persisting runs and traces (the
+`agent_run` and `trace_event` part of M7) was brought forward on request, together with
+migrations, PostgreSQL integration tests in CI, and a CLI to run single tasks. See
+[runner.md](runner.md) for what exists, and data-model.md §7 for how it differs from the
+design.
+
 Compared with the original roadmap, the **in-memory benchmark run + CLI (M6) now comes
 before persistence**. Trace recording is merged into the runner milestone, because the
 runner cannot be tested without it.

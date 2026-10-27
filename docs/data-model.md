@@ -14,7 +14,7 @@ These were approved on 2026-10-27, and `architecture.md` has been updated to mat
 | C3 | Estimated cost moves from the run to `EVALUATION_RESULT`, together with `pricing_version` | Token counts are *facts* about a run; cost is an *interpretation* that depends on a price table that changes over time |
 | C4 | A run may have several evaluations, one per `evaluator_version`. This replaces the "at most one" relationship. | Re-scoring keeps history instead of overwriting it |
 | C5 | New termination reason `HARNESS_ERROR` and run status `ERROR` | A bug in AgentBench itself must not count as the agent's failure |
-| C6 | `TRACE_EVENT` uses the composite primary key `(agent_run_id, seq)` instead of a UUID | The natural key already identifies an event and defines its order |
+| C6 | `TRACE_EVENT` uses the composite primary key `(agent_run_id, seq)` instead of a UUID *(amended — see §7)* | The natural key already identifies an event and defines its order |
 
 ## 2. Entities
 
@@ -536,3 +536,20 @@ answer after a timeout is reported as a timeout.
 **Alternative not taken:** keep evaluations but drop traces after *N* days. It saves the
 most space, but the remaining numbers can no longer be verified. Revisit if trace storage
 ever becomes a real problem.
+
+## 7. Implementation status
+
+What is implemented today (migration `0001`), and where it differs from the design
+above. Behaviour is described in [runner.md](runner.md).
+
+**Implemented:** `agent_run` and `trace_event`.
+
+**Not yet implemented:** `benchmark`, `test_case`, `agent_config`, `benchmark_run`, and
+`evaluation_result`.
+
+| # | Difference from the design | Reason |
+|---|----------------------------|--------|
+| D1 | `trace_event` has its own `id` (UUID) as primary key — the event id. `(agent_run_id, seq)` is a UNIQUE constraint instead of the primary key, amending C6. | Each event needs a stable id of its own. Order guarantees are unchanged: `seq` is still assigned by the recorder, is unique per run, and is read through the unique index. |
+| D2 | `agent_run` is standalone. It has `task_key`, a `task` JSON snapshot, `limits`, `agent_name`, and `agent_version`, and no foreign keys to `benchmark_run`, `test_case`, or `agent_config`. | Single tasks can be run and saved before benchmarks exist. When benchmark tables arrive, a migration will add those foreign keys. Whether standalone runs stay allowed (nullable foreign keys) is an open decision. |
+| D3 | No `repeat_index`, `input_tokens`, or `output_tokens` columns yet. | No agent reports token usage yet, and there are no repeated runs. They will be added with the model adapter and benchmark runs. |
+
