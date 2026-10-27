@@ -134,12 +134,14 @@ for step in 1..max_steps:
     history += observation
 loop finished without a final answer          → stop with MAX_STEPS_EXCEEDED
 agent raised an exception                     → stop with AGENT_ERROR
+bug in the runner's own code                  → stop with HARNESS_ERROR
 ```
 
 The runner returns a `RunResult`: status, `TerminationReason`, the final answer if there
 is one, the event list, and summed timing and usage. **Only a `COMPLETED` run can pass
 evaluation.** Any other termination reason means the case fails, and that reason is
-reported. Nothing is silently turned into a success.
+reported. Nothing is silently turned into a success. `HARNESS_ERROR` marks a fault in
+AgentBench rather than in the agent, so those runs are excluded from pass rates.
 
 **Concurrency choice.** Agents and tools are `async`. The runner wraps each tool call in
 `asyncio.wait_for(...)`, which cancels a timed-out call cleanly whenever the tool is
@@ -187,7 +189,7 @@ sequenceDiagram
 
     C->>A: POST /api/v1/benchmark-runs {benchmark_id, agent, limits}
     A->>A: validate the request (Pydantic) → 422 on error
-    A->>S: start(benchmark_id, agent_spec, limits)
+    A->>S: run_benchmark(benchmark_id, agent config, limits)
     S->>P: load benchmark + test cases
     S->>P: create BenchmarkRun(status=RUNNING)
     P->>D: transaction 1: INSERT, COMMIT
@@ -241,94 +243,55 @@ agentbench/
 
 ## 6. Core entities
 
+The full design — columns, constraints, indexes, event ordering and data retention — is in
+[data-model.md](data-model.md). This section gives the shape of it.
+
 ```mermaid
 erDiagram
-    BENCHMARK ||--o{ TEST_CASE : contains
+    BENCHMARK ||--|{ TEST_CASE : contains
     BENCHMARK ||--o{ BENCHMARK_RUN : "is executed as"
-    BENCHMARK_RUN ||--o{ RUN : contains
-    TEST_CASE ||--o{ RUN : "is executed in"
-    RUN ||--o{ TRACE_EVENT : records
-    RUN ||--o| EVALUATION_RESULT : "is scored by"
-
-    BENCHMARK {
-        uuid id PK
-        string name
-        string version
-        string content_hash
-        datetime created_at
-    }
-    TEST_CASE {
-        uuid id PK
-        uuid benchmark_id FK
-        string key
-        json input
-        json allowed_tools
-        json expectations
-        json limits
-    }
-    BENCHMARK_RUN {
-        uuid id PK
-        uuid benchmark_id FK
-        json agent_spec
-        string status
-        string git_sha
-        datetime started_at
-        datetime finished_at
-        json summary
-    }
-    RUN {
-        uuid id PK
-        uuid benchmark_run_id FK
-        uuid test_case_id FK
-        string status
-        string termination_reason
-        text final_answer
-        int latency_ms
-        int input_tokens
-        int output_tokens
-        numeric estimated_cost_usd
-        text error
-    }
-    TRACE_EVENT {
-        uuid id PK
-        uuid run_id FK
-        int seq
-        string type
-        datetime timestamp
-        json payload
-    }
-    EVALUATION_RESULT {
-        uuid id PK
-        uuid run_id FK
-        bool passed
-        json checks
-        json metrics
-        string evaluator_version
-    }
+    AGENT_CONFIG ||--o{ BENCHMARK_RUN : "is used by"
+    BENCHMARK_RUN ||--o{ AGENT_RUN : contains
+    TEST_CASE ||--o{ AGENT_RUN : "is executed in"
+    AGENT_RUN ||--o{ TRACE_EVENT : "raw trace"
+    AGENT_RUN ||--o{ EVALUATION_RESULT : "scored by (one per evaluator version)"
 ```
 
 Key rules:
 
 - **Benchmarks are immutable.** `(name, version)` is unique, and `content_hash` is computed
-  from the normalised YAML. Registering the same name and version with different content
-  is rejected with 409. Comparisons are only allowed between benchmark runs of the same
-  benchmark version.
-- **`RUN` is one test case run once.** `BENCHMARK_RUN` is one execution of a whole
-  benchmark with one agent configuration.
+  from the canonical definition.
+  - Registering the same name, version *and* content again returns the existing
+    benchmark.
+  - Different content under the same name and version is rejected with 409.
+  - Comparisons are only allowed between benchmark runs of the same benchmark.
+- **Agent configurations are immutable and content-hashed** (`AGENT_CONFIG`), so every
+  run of the same configuration can be grouped and compared.
+- **`AGENT_RUN` is one test case executed once.** `BENCHMARK_RUN` is one execution of a
+  whole benchmark with one agent configuration.
 - **Execution status and verdict are separate.**
-  - `RUN.status` (`COMPLETED` / `FAILED` / `ERROR`) says whether execution finished.
-  - `EVALUATION_RESULT.passed` says whether the agent was right.
+  - `AGENT_RUN.status` (`COMPLETED` / `FAILED` / `ERROR`) and `termination_reason` say
+    how execution ended.
+  - `EVALUATION_RESULT.passed` and `failure_category` say whether the agent was right.
   - A run can complete normally and still give a wrong answer.
-- **`TRACE_EVENT (run_id, seq)` is unique**, so event order is stored explicitly rather
-  than inferred from timestamps.
-- **Fields that are filtered or sorted on are real columns**: status, passed, latency,
-  tokens, cost. Fields that are only displayed (payloads, check details) are JSON.
-- **Every agent and evaluator has a version**, recorded with each result
-  (`agent_spec`, `evaluator_version`, `git_sha`), so it is clear what produced a number.
+  - `ERROR` (`HARNESS_ERROR`) means AgentBench itself failed. Such runs are excluded
+    from pass rates and reported separately.
+- **The trace is facts; the evaluation is a judgement.**
+  - `AGENT_RUN` and `TRACE_EVENT` are written once and never changed.
+  - `EVALUATION_RESULT` is written once per evaluator version. Re-scoring adds rows and
+    never overwrites.
+- **Event order is explicit.** `TRACE_EVENT` is keyed by `(agent_run_id, seq)`. `seq`
+  is assigned by the recorder, never inferred from timestamps.
+- **Fields that are filtered or sorted on are real columns**: status, passed, duration,
+  tokens, cost. Fields that are only displayed (payloads, check details) are JSONB.
+- **Everything that produced a number is recorded**: `agent_version`, `evaluator_version`,
+  `pricing_version`, `git_sha`.
 
-**Pricing and cost.** Cost is `tokens × price` from a versioned price table in
-`evaluation/pricing.py`, and it is always labelled *estimated*. Deterministic agents
-either report zero usage or a declared *simulated* usage, which is labelled as such.
+**Pricing and cost.** Token counts are facts and are stored on `AGENT_RUN`. `NULL` means
+"not reported", which is different from 0. Cost is `tokens × price` from a versioned
+price table in `evaluation/pricing.py`. It is stored on `EVALUATION_RESULT` together
+with `pricing_version`, and is always labelled *estimated*. Deterministic agents either
+report no usage or a declared *simulated* usage, which is labelled as such.
 
 ## 7. API design
 
@@ -373,6 +336,7 @@ trace:
 | Transient tool error | Timeout, injected transient failure | Yes, bounded, with backoff | Repeated failure → `TOOL_FAILURE_EXHAUSTED` |
 | Permanent tool error | Tool reports an invalid request | No | Returned to the agent as an observation |
 | Agent error | Exception inside `agent.decide` | No | `AGENT_ERROR` |
+| Harness error | Bug in AgentBench's own code during a run | No | `HARNESS_ERROR`; the run is excluded from the pass rate |
 | Limit reached | Step limit or run deadline | — | `MAX_STEPS_EXCEEDED` / `RUN_TIMEOUT` |
 
 ## 8. Transactions and persistence
@@ -380,8 +344,8 @@ trace:
 | Operation | Transaction boundary | Reason |
 |-----------|---------------------|--------|
 | Register a benchmark | One transaction for the benchmark row and all its test cases | All or nothing; a half-registered benchmark is never visible |
-| Start a benchmark run | Insert `BENCHMARK_RUN(status=RUNNING)` and commit immediately | The run is visible straight away, and a crash leaves evidence behind |
-| Finish one test case | One transaction for `RUN` + all `TRACE_EVENT`s + `EVALUATION_RESULT` | A case is saved completely or not at all; earlier cases survive a crash later on |
+| Start a benchmark run | Get or create the `AGENT_CONFIG`, insert `BENCHMARK_RUN(status=RUNNING)`, and commit immediately | The run is visible straight away, and a crash leaves evidence behind |
+| Finish one test case | One transaction for `AGENT_RUN` + all `TRACE_EVENT`s + `EVALUATION_RESULT` | A case is saved completely or not at all; earlier cases survive a crash later on |
 | Finish a benchmark run | One transaction updating the status and summary | — |
 
 **Rejected alternatives**
@@ -433,7 +397,7 @@ Rules:
 |---|------|------------|------------------------|
 | R1 | Python cannot forcibly stop CPU-bound code, so a timeout cannot interrupt a busy synchronous tool | Tools are `async` and mock tools never block; a timeout is still recorded even if a tool ignores cancellation | Run tools in subprocesses that can be killed — correct, but heavier; revisit if untrusted tools appear |
 | R2 | The agent interface turns out too narrow for real LLM tool calling (parallel calls, multi-part messages) | The agent receives the full history; a decision type can grow into a list later | Model on one provider's message format — rejected because it ties the core to one vendor |
-| R3 | Real LLMs are non-deterministic, so one run per case can mislead | Out of the MVP; record `repeats` in `agent_spec` now so results can be grouped later | Build statistics in now — premature |
+| R3 | Real LLMs are non-deterministic, so one run per case can mislead | Out of the MVP; `AGENT_RUN.repeat_index` exists now so repeated runs can be stored and grouped later | Build statistics in now — premature |
 | R4 | `POST /benchmark-runs` is synchronous; a long benchmark could exceed HTTP timeouts | Cap the number of cases (413); mock tools take milliseconds; the CLI handles large runs | Job queue (Celery/RQ + Redis) — adds two services with no current need |
 | R5 | JSON columns make some queries hard | Promote a field to a real column when a query needs it | Fully normalised tables for checks and payloads — more migrations, little benefit now |
 | R6 | Deterministic checks cannot score open-ended answers | Benchmarks are designed with checkable answers (numbers, ids, exact facts) | LLM-as-judge — a non-goal; non-deterministic |
