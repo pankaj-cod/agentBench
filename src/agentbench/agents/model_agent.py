@@ -18,6 +18,7 @@ Model output is untrusted. Tool names and arguments go to the ToolRegistry for
 validation like any other agent's; nothing the model writes is ever executed as code.
 """
 
+import hashlib
 import json
 from typing import Any
 
@@ -86,6 +87,8 @@ class ModelAgent:
             "model_response": response.model_dump(mode="json"),
             "api_attempts": attempts,
             "tool_schemas_hash": tool_schemas_hash(context.tools),
+            # Lets a re-execution detect that it sent a different conversation.
+            "request_hash": request_hash(request),
         }
         if response.tool_calls:
             first, *rest = response.tool_calls
@@ -128,6 +131,10 @@ class ModelAgent:
                     ) from exc
                 backoff = self.config.api_retry_backoff_s * 2 ** (attempt - 1)
                 await self._clock.sleep(exc.retry_after_s if exc.retry_after_s else backoff)
+
+
+def request_hash(request: ModelRequest) -> str:
+    return hashlib.sha256(request.model_dump_json().encode()).hexdigest()
 
 
 def build_conversation(context: AgentContext) -> tuple[Message, ...]:
