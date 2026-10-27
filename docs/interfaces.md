@@ -132,7 +132,10 @@ class BenchmarkRunRepository(Protocol):
         self, benchmark_id: uuid.UUID | None, limit: int, offset: int
     ) -> tuple[list[BenchmarkRun], int]: ...
     def finish(
-        self, run_id: uuid.UUID, status: BenchmarkRunStatus, finished_at: datetime,
+        self,
+        run_id: uuid.UUID,
+        status: BenchmarkRunStatus,
+        finished_at: datetime,
         summary: Mapping[str, Any] | None,
     ) -> None: ...
     def stale_running(self, started_before: datetime) -> list[uuid.UUID]: ...
@@ -210,6 +213,7 @@ ToolName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 
 
 # ---------- Requests: benchmark definitions ----------
+
 
 class RunLimits(Schema):
     max_steps: int = Field(default=10, ge=1, le=100)
@@ -297,6 +301,7 @@ class BenchmarkCreate(Schema):
 
 # ---------- Requests: running ----------
 
+
 class AgentConfigCreate(Schema):
     name: Slug
     type: Literal["scripted", "rule_based"]
@@ -310,6 +315,7 @@ class BenchmarkRunCreate(Schema):
 
 
 # ---------- Responses ----------
+
 
 class BenchmarkOut(Schema):
     id: uuid.UUID

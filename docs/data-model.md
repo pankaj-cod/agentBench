@@ -272,9 +272,7 @@ class BenchmarkRow(Base):
     version: Mapped[str] = mapped_column(String(50))
     description: Mapped[str] = mapped_column(Text, default="")
     content_hash: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class TestCaseRow(Base):
@@ -286,9 +284,7 @@ class TestCaseRow(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    benchmark_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("benchmark.id", ondelete="CASCADE")
-    )
+    benchmark_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("benchmark.id", ondelete="CASCADE"))
     key: Mapped[str] = mapped_column(String(100))
     position: Mapped[int] = mapped_column(Integer)
     prompt: Mapped[str] = mapped_column(Text)
@@ -308,9 +304,7 @@ class AgentConfigRow(Base):
     agent_version: Mapped[str] = mapped_column(String(50))
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     config_hash: Mapped[str] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class BenchmarkRunRow(Base):
@@ -330,9 +324,7 @@ class BenchmarkRunRow(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    benchmark_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("benchmark.id", ondelete="RESTRICT")
-    )
+    benchmark_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("benchmark.id", ondelete="RESTRICT"))
     agent_config_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("agent_config.id", ondelete="RESTRICT")
     )
@@ -363,8 +355,7 @@ class AgentRunRow(Base):
             name="ck_agent_run_completed_has_answer",
         ),
         CheckConstraint(
-            "repeat_index >= 0 AND step_count >= 0 AND tool_call_count >= 0"
-            " AND duration_us >= 0",
+            "repeat_index >= 0 AND step_count >= 0 AND tool_call_count >= 0 AND duration_us >= 0",
             name="ck_agent_run_nonnegative",
         ),
         CheckConstraint(
@@ -380,14 +371,10 @@ class AgentRunRow(Base):
     benchmark_run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("benchmark_run.id", ondelete="CASCADE")
     )
-    test_case_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("test_case.id", ondelete="RESTRICT")
-    )
+    test_case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("test_case.id", ondelete="RESTRICT"))
     repeat_index: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[AgentRunStatus] = mapped_column(str_enum(AgentRunStatus))
-    termination_reason: Mapped[TerminationReason] = mapped_column(
-        str_enum(TerminationReason)
-    )
+    termination_reason: Mapped[TerminationReason] = mapped_column(str_enum(TerminationReason))
     final_answer: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
     step_count: Mapped[int] = mapped_column(Integer)
@@ -419,9 +406,7 @@ class TraceEventRow(Base):
 class EvaluationResultRow(Base):
     __tablename__ = "evaluation_result"
     __table_args__ = (
-        UniqueConstraint(
-            "agent_run_id", "evaluator_version", name="uq_evaluation_run_version"
-        ),
+        UniqueConstraint("agent_run_id", "evaluator_version", name="uq_evaluation_run_version"),
         CheckConstraint(
             "passed = (failure_category IS NULL)", name="ck_evaluation_category_iff_failed"
         ),
@@ -437,23 +422,17 @@ class EvaluationResultRow(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    agent_run_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("agent_run.id", ondelete="CASCADE")
-    )
+    agent_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_run.id", ondelete="CASCADE"))
     evaluator_version: Mapped[str] = mapped_column(String(50))
     pricing_version: Mapped[str] = mapped_column(String(50))
     passed: Mapped[bool]
     score: Mapped[Decimal] = mapped_column(Numeric(5, 4))
-    failure_category: Mapped[FailureCategory | None] = mapped_column(
-        str_enum(FailureCategory)
-    )
+    failure_category: Mapped[FailureCategory | None] = mapped_column(str_enum(FailureCategory))
     checks: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     tool_calls_valid: Mapped[int] = mapped_column(Integer)
     tool_calls_total: Mapped[int] = mapped_column(Integer)
     estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 ```
 
 **Index rationale**
