@@ -539,17 +539,21 @@ ever becomes a real problem.
 
 ## 7. Implementation status
 
-What is implemented today (migration `0001`), and where it differs from the design
-above. Behaviour is described in [runner.md](runner.md).
+What is implemented today (migrations `0001` and `0002`), and where it differs from the
+design above. Behaviour is described in [runner.md](runner.md) and
+[evaluation.md](evaluation.md).
 
-**Implemented:** `agent_run` and `trace_event`.
-
-**Not yet implemented:** `benchmark`, `test_case`, `agent_config`, `benchmark_run`, and
+**Implemented:** `agent_run` (including token columns since `0002`), `trace_event`, and
 `evaluation_result`.
+
+**Not yet implemented:** `benchmark`, `test_case`, `agent_config`, and `benchmark_run`.
+Benchmarks are JSON files, and summaries and comparisons are computed from evaluations.
 
 | # | Difference from the design | Reason |
 |---|----------------------------|--------|
 | D1 | `trace_event` has its own `id` (UUID) as primary key — the event id. `(agent_run_id, seq)` is a UNIQUE constraint instead of the primary key, amending C6. | Each event needs a stable id of its own. Order guarantees are unchanged: `seq` is still assigned by the recorder, is unique per run, and is read through the unique index. |
 | D2 | `agent_run` is standalone. It has `task_key`, a `task` JSON snapshot, `limits`, `agent_name`, and `agent_version`, and no foreign keys to `benchmark_run`, `test_case`, or `agent_config`. | Single tasks can be run and saved before benchmarks exist. When benchmark tables arrive, a migration will add those foreign keys. Whether standalone runs stay allowed (nullable foreign keys) is an open decision. |
-| D3 | No `repeat_index`, `input_tokens`, or `output_tokens` columns yet. | No agent reports token usage yet, and there are no repeated runs. They will be added with the model adapter and benchmark runs. |
+| D3 | No `repeat_index` yet. `input_tokens` / `output_tokens` were added in `0002` (nullable: NULL means not reported). | There are no repeated runs yet. |
+| D4 | `evaluation_result` has a three-valued `outcome` (`PASSED` / `FAILED` / `INVALID`) and a `failure_source` (`AGENT` / `INFRASTRUCTURE`), instead of `passed` + `score`. It has an `explanation`, a `case_key`, and a JSON snapshot of the `expectations` applied. Per-run metrics, including estimated cost, live in a `metrics` JSONB column. | A run that failed because of infrastructure must not count as the agent failing. Storing the applied criteria keeps each verdict checkable without a `test_case` table. CHECK constraints keep the outcome, category and source consistent. |
+| D5 | Two failure categories were added: `WRONG_TOOL_ARGUMENTS` and `MISSING_RETRIEVED_RECORDS`. | A valid call with the wrong values, and failing to retrieve the expected records, are different mistakes from not calling a tool at all. |
 

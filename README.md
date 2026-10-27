@@ -3,9 +3,10 @@
 AgentBench is an open-source developer tool for evaluating, debugging, and comparing
 tool-using AI agents.
 
-> **Status: early development.** A deterministic agent runner with validated mock tools,
-> ordered execution traces, and PostgreSQL persistence works today. Evaluation,
-> benchmarks, the HTTP API, and the dashboard are not built yet. No real LLM is used.
+> **Status: early development.** Working today: a deterministic agent runner with
+> validated mock tools, ordered execution traces, a deterministic evaluator with
+> documented metrics, benchmark comparisons between agent configurations, and PostgreSQL
+> persistence. The HTTP API and the dashboard are not built yet. No real LLM is used.
 
 ## Goals
 
@@ -36,11 +37,34 @@ are reproducible and the test suite never depends on a live LLM API.
   `ScriptedAgent` replays fixed decisions for tests.
 - **Trace recording**: every event has an event id, run id, gap-free sequence number,
   type, UTC timestamp, monotonic elapsed time, and a JSON payload.
-- **PostgreSQL persistence** with Alembic migrations. The database enforces the same
-  rules as the code.
+- **`EvaluationEngine`**: scores each run against explicit per-case criteria:
+  - expected answers, including numeric tolerance;
+  - required tools with expected arguments;
+  - forbidden tools;
+  - expected retrieved records.
 
-How it works: [docs/runner.md](docs/runner.md). Design: [docs/architecture.md](docs/architecture.md),
-[docs/data-model.md](docs/data-model.md), [docs/interfaces.md](docs/interfaces.md).
+  No LLM judge. Each run gets one outcome — `PASSED`, `FAILED` (the agent's fault) or
+  `INVALID` (an infrastructure fault) — plus a primary failure category and an
+  explanation.
+- **Metrics with stated numerators, denominators and exclusions**:
+  - success rate;
+  - tool selection correctness;
+  - tool argument validity;
+  - tool execution error rate;
+  - timeout and step-limit rates;
+  - latency p50/p95;
+  - steps per run;
+  - tokens and cost.
+
+  Anything that can't be measured is reported as unavailable, never as 0.
+- **Comparisons** between agent configurations: percentage-point changes for rates,
+  absolute and relative changes for values, and per-case fixed/broken lists.
+- **PostgreSQL persistence** of runs, traces and versioned evaluations, with Alembic
+  migrations. The database enforces the same rules as the code.
+
+How it works: [docs/runner.md](docs/runner.md), [docs/evaluation.md](docs/evaluation.md).
+Design: [docs/architecture.md](docs/architecture.md), [docs/data-model.md](docs/data-model.md),
+[docs/interfaces.md](docs/interfaces.md).
 
 ## Quick start (no database)
 
