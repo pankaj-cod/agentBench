@@ -1,0 +1,146 @@
+{
+  "name": "inventory",
+  "version": "1",
+  "description": "Lookups, searches, and arithmetic over the built-in inventory records. Expected answers were worked out by hand from the dataset in src/agentbench/tools/mock/records.py. The last two cases use phrasings that the rule-based agent does not support.",
+  "cases": [
+    {
+      "key": "lookup-quantity-a12",
+      "prompt": "What is the quantity of record A-12?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 120},
+        "required_tools": [{"name": "lookup_record", "args_subset": {"record_id": "A-12"}}],
+        "expected_records": ["A-12"],
+        "max_tool_calls": 2
+      }
+    },
+    {
+      "key": "lookup-price-c04",
+      "prompt": "What is the price of record C-04?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 74.5, "tolerance": 0.001},
+        "required_tools": [{"name": "lookup_record", "args_subset": {"record_id": "C-04"}}]
+      }
+    },
+    {
+      "key": "lookup-name-c03",
+      "prompt": "What is the name of record C-03?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "exact", "value": "Wireless mouse"},
+        "required_tools": [{"name": "lookup_record", "args_subset": {"record_id": "C-03"}}]
+      }
+    },
+    {
+      "key": "lookup-category-d21",
+      "prompt": "What is the category of record D-21?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "exact", "value": "accessories"},
+        "required_tools": [{"name": "lookup_record", "args_subset": {"record_id": "D-21"}}]
+      }
+    },
+    {
+      "key": "find-cables",
+      "prompt": "Find records matching 'cable'",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "regex", "pattern": "B-07,\\s*B-09"},
+        "required_tools": [{"name": "search_records", "args_subset": {"query": "cable"}}],
+        "forbidden_tools": ["calculator"],
+        "expected_records": ["B-07", "B-09"]
+      }
+    },
+    {
+      "key": "find-nothing",
+      "prompt": "Find records matching 'spaceship'",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "one_of", "values": ["none"]},
+        "required_tools": [{"name": "search_records"}]
+      }
+    },
+    {
+      "key": "percent-of-quantity-a12",
+      "prompt": "What is 17% of the quantity of record A-12?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 20.4, "tolerance": 0.01},
+        "required_tools": [
+          {"name": "lookup_record", "args_subset": {"record_id": "A-12"}},
+          {"name": "calculator"}
+        ],
+        "expected_records": ["A-12"]
+      }
+    },
+    {
+      "key": "percent-of-price-b09",
+      "prompt": "What is 50% of the price of record B-09?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 4.875, "tolerance": 0.001},
+        "required_tools": [
+          {"name": "lookup_record", "args_subset": {"record_id": "B-09"}},
+          {"name": "calculator"}
+        ]
+      }
+    },
+    {
+      "key": "total-quantity-steel",
+      "prompt": "What is the total quantity of records matching 'steel'?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 420},
+        "required_tools": [{"name": "search_records"}, {"name": "calculator"}],
+        "expected_records": ["A-12", "A-15"]
+      }
+    },
+    {
+      "key": "total-value-cables",
+      "prompt": "What is the total value of records matching 'cable'?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 468, "tolerance": 0.01},
+        "required_tools": [{"name": "search_records"}, {"name": "calculator"}],
+        "expected_records": ["B-07", "B-09"]
+      }
+    },
+    {
+      "key": "compute-expression",
+      "prompt": "Compute (12 + 8) * 3",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 60},
+        "required_tools": [{"name": "calculator"}],
+        "forbidden_tools": ["search_records", "lookup_record"]
+      }
+    },
+    {
+      "key": "missing-record-reported",
+      "prompt": "What is the quantity of record Z-99?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "regex", "pattern": "(?i)unable to answer.*not found.*"}
+      }
+    },
+    {
+      "key": "paraphrased-lookup",
+      "prompt": "How many Steel bolt M8 do we have in stock?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 120},
+        "expected_records": ["A-12"]
+      }
+    },
+    {
+      "key": "percent-of-total",
+      "prompt": "What is 10% of the total quantity of records matching 'steel'?",
+      "allowed_tools": ["search_records", "lookup_record", "calculator"],
+      "expectations": {
+        "final_answer": {"type": "numeric", "value": 42, "tolerance": 0.01},
+        "required_tools": [{"name": "search_records"}, {"name": "calculator"}]
+      }
+    }
+  ]
+}

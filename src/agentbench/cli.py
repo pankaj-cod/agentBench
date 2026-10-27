@@ -2,8 +2,11 @@
 
     agentbench run "What is the quantity of record A-12?" [--save] [--json]
     agentbench show <run-id> [--json]
+    agentbench bench <benchmark.json> --label NAME [--max-steps N] [--save] [--output FILE]
+    agentbench compare <baseline-summary.json> <candidate-summary.json> [--output FILE]
 
-Exit code: 0 if the run COMPLETED, 1 if it FAILED or hit an ERROR, 2 for usage errors.
+`run`/`show` exit with 0 if the run COMPLETED and 1 otherwise. `bench`/`compare` exit
+with 0 on success and 1 if the input cannot be used. Usage errors exit with 2.
 """
 
 import argparse
@@ -11,13 +14,25 @@ import asyncio
 import json
 import sys
 import uuid
+from functools import partial
+from pathlib import Path
 from typing import Any, TextIO
 
 from agentbench.agents.rule_based import RuleBasedAgent
+from agentbench.benchmarks.service import (
+    AgentConfig,
+    BenchmarkLoadError,
+    BenchmarkRunner,
+    load_benchmark,
+)
 from agentbench.domain.enums import AgentRunStatus, TraceEventType
 from agentbench.domain.models import RunLimits, RunResult, Task, TraceEvent
+from agentbench.evaluation.comparison import ComparisonError, compare
+from agentbench.evaluation.engine import EvaluationEngine
+from agentbench.evaluation.metrics import BenchmarkSummary
 from agentbench.persistence.db import create_db_engine, create_session_factory, database_url
 from agentbench.persistence.uow import UnitOfWork
+from agentbench.reports import render_comparison, render_summary
 from agentbench.runner.runner import AgentRunner
 from agentbench.service import TaskRunService
 from agentbench.tools.mock import default_registry
@@ -27,6 +42,10 @@ ALL_TOOLS = ("search_records", "lookup_record", "calculator")
 
 def main(argv: list[str] | None = None, out: TextIO = sys.stdout) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "bench":
+        return _bench(args, out)
+    if args.command == "compare":
+        return _compare(args, out)
     if args.command == "run":
         result = asyncio.run(_run(args))
     else:
@@ -56,7 +75,51 @@ def _parser() -> argparse.ArgumentParser:
     show = commands.add_parser("show", help="show a saved run")
     show.add_argument("run_id", type=uuid.UUID)
     show.add_argument("--json", action="store_true")
+
+    bench = commands.add_parser("bench", help="evaluate the rule-based agent on a benchmark")
+    bench.add_argument("benchmark", type=Path)
+    bench.add_argument("--label", required=True, help="name of this agent configuration")
+    bench.add_argument("--max-steps", type=int, default=10)
+    bench.add_argument("--save", action="store_true", help="save runs and evaluations")
+    bench.add_argument("--output", type=Path, help="write the summary as JSON")
+
+    compare_cmd = commands.add_parser("compare", help="compare two benchmark summaries")
+    compare_cmd.add_argument("baseline", type=Path)
+    compare_cmd.add_argument("candidate", type=Path)
+    compare_cmd.add_argument("--output", type=Path, help="write the comparison as JSON")
     return parser
+
+
+def _bench(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        benchmark = load_benchmark(args.benchmark)
+    except BenchmarkLoadError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    uow_factory = None
+    if args.save:
+        uow_factory = partial(UnitOfWork, create_session_factory(create_db_engine(database_url())))
+    runner = BenchmarkRunner(AgentRunner(default_registry()), EvaluationEngine(), uow_factory)
+    config = AgentConfig(args.label, RuleBasedAgent, RunLimits(max_steps=args.max_steps))
+    summary = asyncio.run(runner.run(benchmark, config))
+    if args.output:
+        args.output.write_text(summary.model_dump_json(indent=2) + "\n")
+    out.write(render_summary(summary))
+    return 0
+
+
+def _compare(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        baseline = BenchmarkSummary.model_validate_json(args.baseline.read_text())
+        candidate = BenchmarkSummary.model_validate_json(args.candidate.read_text())
+        comparison = compare(baseline, candidate)
+    except (OSError, ValueError, ComparisonError) as exc:
+        print(f"cannot compare: {exc}", file=sys.stderr)
+        return 1
+    if args.output:
+        args.output.write_text(comparison.model_dump_json(indent=2) + "\n")
+    out.write(render_comparison(comparison))
+    return 0
 
 
 async def _run(args: argparse.Namespace) -> RunResult:
