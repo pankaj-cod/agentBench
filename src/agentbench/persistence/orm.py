@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     String,
@@ -26,7 +27,12 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from agentbench.domain.enums import AgentRunStatus, TerminationReason, TraceEventType
+from agentbench.domain.enums import (
+    AgentRunStatus,
+    ExecutionMode,
+    TerminationReason,
+    TraceEventType,
+)
 from agentbench.domain.evaluation import EvaluationOutcome, FailureCategory, FailureSource
 
 NAMING_CONVENTION = {
@@ -66,7 +72,8 @@ class AgentRunRow(Base):
             "(status = 'COMPLETED' AND termination_reason = 'COMPLETED')"
             " OR (status = 'ERROR' AND termination_reason = 'HARNESS_ERROR')"
             " OR (status = 'FAILED' AND termination_reason IN ("
-            "'MAX_STEPS_EXCEEDED', 'RUN_TIMEOUT', 'TOOL_FAILURE_EXHAUSTED', 'AGENT_ERROR'))",
+            "'MAX_STEPS_EXCEEDED', 'RUN_TIMEOUT', 'TOOL_FAILURE_EXHAUSTED', 'AGENT_ERROR',"
+            " 'MODEL_UNAVAILABLE'))",
             name="status_matches_reason",
         ),
         CheckConstraint(
@@ -81,6 +88,7 @@ class AgentRunRow(Base):
             " AND (output_tokens IS NULL OR output_tokens >= 0)",
             name="tokens_nonnegative",
         ),
+        Index("ix_agent_run_agent_config_hash", "agent_config_hash"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
@@ -101,6 +109,15 @@ class AgentRunRow(Base):
     # NULL means "not reported", which is different from 0.
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    # Versioning and lineage (migration 0003).
+    agent_config_hash: Mapped[str | None] = mapped_column(String(64))
+    tool_schemas_hash: Mapped[str | None] = mapped_column(String(64))
+    execution_mode: Mapped[ExecutionMode] = mapped_column(
+        str_enum(ExecutionMode, "execution_mode"), server_default="LIVE"
+    )
+    source_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_run.id", ondelete="SET NULL")
+    )
     started_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ)
     finished_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
@@ -144,7 +161,7 @@ class EvaluationResultRow(Base):
             name="outcome_consistent",
         ),
         CheckConstraint(
-            "(failure_category IN ('HARNESS_ERROR', 'TOOL_FAILURE'))"
+            "(failure_category IN ('HARNESS_ERROR', 'TOOL_FAILURE', 'MODEL_UNAVAILABLE'))"
             " = (failure_source = 'INFRASTRUCTURE')",
             name="category_matches_source",
         ),

@@ -43,6 +43,10 @@ class AgentRunRepository:
             duration_us=result.duration_us,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
+            agent_config_hash=result.agent_config_hash,
+            tool_schemas_hash=result.tool_schemas_hash,
+            execution_mode=result.execution_mode,
+            source_run_id=result.source_run_id,
             started_at=result.started_at,
             finished_at=result.finished_at,
             events=[
@@ -81,6 +85,10 @@ class AgentRunRepository:
             duration_us=row.duration_us,
             input_tokens=row.input_tokens,
             output_tokens=row.output_tokens,
+            agent_config_hash=row.agent_config_hash,
+            tool_schemas_hash=row.tool_schemas_hash,
+            execution_mode=row.execution_mode,
+            source_run_id=row.source_run_id,
             events=tuple(self.events(run_id)),
         )
 
