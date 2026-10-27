@@ -5,7 +5,12 @@ description = "Evaluate, debug, and compare tool-using AI agents."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "alembic>=1.20.1",
+    "psycopg[binary]>=3.3.6",
+    "pydantic>=2.14.1",
+    "sqlalchemy>=2.1.6",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -32,4 +37,4 @@ select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
