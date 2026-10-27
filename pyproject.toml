@@ -12,6 +12,9 @@ dependencies = [
     "sqlalchemy>=2.1.6",
 ]
 
+[project.scripts]
+agentbench = "agentbench.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
