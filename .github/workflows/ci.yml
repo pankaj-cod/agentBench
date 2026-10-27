@@ -12,6 +12,25 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # Throwaway CI database; not a secret.
+          POSTGRES_USER: agentbench
+          POSTGRES_PASSWORD: agentbench
+          POSTGRES_DB: agentbench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentbench -d agentbench"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      AGENTBENCH_TEST_DATABASE_URL: postgresql+psycopg://agentbench:agentbench@localhost:5432/agentbench
+      # Fail, rather than skip, if the PostgreSQL tests cannot run.
+      AGENTBENCH_REQUIRE_POSTGRES: "1"
     steps:
       - uses: actions/checkout@v7
 
