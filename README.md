@@ -5,8 +5,10 @@ tool-using AI agents.
 
 > **Status: early development.** Working today: a deterministic agent runner with
 > validated mock tools, ordered execution traces, a deterministic evaluator with
-> documented metrics, benchmark comparisons between agent configurations, and PostgreSQL
-> persistence. The HTTP API and the dashboard are not built yet. No real LLM is used.
+> documented metrics, benchmark comparisons between agent configurations, PostgreSQL
+> persistence, a Claude model adapter with versioned configurations, and replayable
+> runs. The HTTP API and the dashboard are not built yet. Tests and CI never call a
+> live model; no live-model results are published.
 
 ## Goals
 
@@ -61,8 +63,21 @@ are reproducible and the test suite never depends on a live LLM API.
   absolute and relative changes for values, and per-case fixed/broken lists.
 - **PostgreSQL persistence** of runs, traces and versioned evaluations, with Alembic
   migrations. The database enforces the same rules as the code.
+- **Model agents**:
+  - a provider-independent `ModelAdapter`, with an Anthropic (Claude) adapter built on
+    the official SDK;
+  - a stateless `ModelAgent` that treats model tool calls as untrusted input;
+  - bounded API retries; persistent provider outages are classified as infrastructure
+    failures, not agent failures.
+- **Versioning and replay**:
+  - every run records its configuration hash (model, prompt version, decoding and
+    retry settings) and the hash of the tool schemas the model was shown;
+  - runs can be re-scored, re-executed with recorded model responses, or re-run live,
+    and live re-runs are never reported as deterministic;
+  - two configurations can be compared on the same benchmark.
 
-How it works: [docs/runner.md](docs/runner.md), [docs/evaluation.md](docs/evaluation.md).
+How it works: [docs/runner.md](docs/runner.md), [docs/evaluation.md](docs/evaluation.md),
+[docs/models.md](docs/models.md).
 Design: [docs/architecture.md](docs/architecture.md), [docs/data-model.md](docs/data-model.md),
 [docs/interfaces.md](docs/interfaces.md).
 
@@ -102,6 +117,30 @@ seq  step        +ms  event                 detail
 - `--json` — print the full result as JSON.
 
 The exit code is 0 only for `COMPLETED` runs.
+
+## Running a Claude agent (optional, paid)
+
+Everything above runs without credentials. To evaluate a live Claude model instead of
+the rule-based agent:
+
+1. Install the SDK extra: `uv sync --extra anthropic`.
+2. Copy `.env.example` to `.env` (git ignores `.env`) and set `ANTHROPIC_API_KEY`.
+3. Load it into your shell:
+
+   ```bash
+   set -a; source .env; set +a
+   ```
+
+4. Run the benchmark with a model configuration:
+
+   ```bash
+   uv run agentbench bench examples/benchmarks/inventory-v1.json --label opus-v1 \
+     --agent-config examples/agents/opus-inventory-v1.json --output opus-v1.json
+   ```
+
+**This makes real, billed API calls.** Live model output is not deterministic, so a
+single run per case is one sample, not a stable score. See [docs/models.md](docs/models.md)
+for configuration versioning, replay modes, and experiments.
 
 ## Saving runs to PostgreSQL
 
@@ -195,12 +234,12 @@ docs/           architecture and design
 - [x] Agent runner with step limits, timeouts, and bounded retries
 - [x] Trace recording
 - [x] Persistence of runs and traces (SQLAlchemy + PostgreSQL + Alembic)
-- [ ] Deterministic evaluator and scoring
-- [ ] Benchmarks and comparisons
+- [x] Deterministic evaluator and scoring
+- [x] Benchmarks and comparisons
+- [x] Model adapter (Anthropic), versioned agent configurations, replay
 - [ ] HTTP API (FastAPI)
 - [ ] Dashboard (Streamlit)
 - [ ] Docker Compose for the full stack
-- [ ] Real model adapter
 
 ## License
 
