@@ -6,8 +6,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from agentbench.agents.base import Agent, AgentContext
-from agentbench.domain.enums import TerminationReason, TraceEventType
-from agentbench.domain.errors import InvalidTaskError, ToolError, ToolValidationError
+from agentbench.domain.agent_config import tool_schemas_hash
+from agentbench.domain.enums import ExecutionMode, TerminationReason, TraceEventType
+from agentbench.domain.errors import (
+    AgentInfrastructureError,
+    InvalidTaskError,
+    ToolError,
+    ToolValidationError,
+)
 from agentbench.domain.models import (
     FinalAnswerDecision,
     HistoryStep,
@@ -39,6 +45,7 @@ class _Counters:
     decisions_with_usage: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    tool_schemas_hash: str | None = None
 
     def add_usage(self, decision: ToolCallDecision | FinalAnswerDecision) -> None:
         self.decisions += 1
@@ -65,6 +72,8 @@ class AgentRunner:
     - Limits: `max_steps` decisions, a whole-run deadline, a per-call timeout, and at
       most `max_retries` retries of retryable tool errors, with exponential backoff.
     - An unexpected exception in AgentBench's own code becomes HARNESS_ERROR.
+    - An AgentInfrastructureError from the agent (e.g. the model provider stayed
+      unavailable after retries) becomes MODEL_UNAVAILABLE, not AGENT_ERROR.
     """
 
     def __init__(
@@ -78,7 +87,15 @@ class AgentRunner:
         self._clock = clock or SystemClock()
         self._id_factory = id_factory
 
-    async def run(self, task: Task, agent: Agent, limits: RunLimits | None = None) -> RunResult:
+    async def run(
+        self,
+        task: Task,
+        agent: Agent,
+        limits: RunLimits | None = None,
+        *,
+        execution_mode: ExecutionMode = ExecutionMode.LIVE,
+        source_run_id: uuid.UUID | None = None,
+    ) -> RunResult:
         limits = limits or RunLimits()
         unknown = set(task.allowed_tools) - self._registry.names()
         if unknown:
@@ -93,7 +110,9 @@ class AgentRunner:
         counters = _Counters()
 
         try:
-            stop = await self._loop(task, agent, limits, recorder, counters, deadline_us)
+            stop = await self._loop(
+                task, agent, limits, recorder, counters, deadline_us, execution_mode, source_run_id
+            )
         except Exception as exc:
             stop = _Stop(TerminationReason.HARNESS_ERROR, error_message=_describe(exc))
 
@@ -110,6 +129,7 @@ class AgentRunner:
                 "tool_call_count": counters.tool_call_count,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "tool_schemas_hash": counters.tool_schemas_hash,
             },
         )
         return RunResult(
@@ -129,6 +149,10 @@ class AgentRunner:
             duration_us=self._clock.monotonic_us() - start_us,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            agent_config_hash=getattr(agent, "config_hash", None),
+            tool_schemas_hash=counters.tool_schemas_hash,
+            execution_mode=execution_mode,
+            source_run_id=source_run_id,
             events=recorder.close(),
         )
 
@@ -140,18 +164,28 @@ class AgentRunner:
         recorder: TraceRecorder,
         counters: _Counters,
         deadline_us: int,
+        execution_mode: ExecutionMode,
+        source_run_id: uuid.UUID | None,
     ) -> _Stop:
         allowed = frozenset(task.allowed_tools)
+        describe = getattr(agent, "describe", None)
         recorder.record(
             TraceEventType.RUN_STARTED,
             0,
             {
                 "task": task.model_dump(mode="json"),
                 "limits": limits.model_dump(mode="json"),
-                "agent": {"name": agent.name, "version": agent.version},
+                "agent": {
+                    "name": agent.name,
+                    "version": agent.version,
+                    "config": describe() if describe else None,
+                },
+                "execution_mode": execution_mode,
+                "source_run_id": str(source_run_id) if source_run_id else None,
             },
         )
         tool_schemas = tuple(self._registry.schemas(allowed))
+        counters.tool_schemas_hash = tool_schemas_hash(tool_schemas)
         history: list[HistoryStep] = []
 
         for step in range(1, limits.max_steps + 1):
@@ -168,6 +202,8 @@ class AgentRunner:
                     TerminationReason.RUN_TIMEOUT,
                     error_message=f"agent did not decide within the remaining {remaining_s:.3f}s",
                 )
+            except AgentInfrastructureError as exc:
+                return _Stop(TerminationReason.MODEL_UNAVAILABLE, error_message=_describe(exc))
             except Exception as exc:
                 return _Stop(TerminationReason.AGENT_ERROR, error_message=_describe(exc))
 
