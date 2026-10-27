@@ -36,6 +36,9 @@ class AssistantMessage(DomainModel):
     role: Literal["assistant"] = "assistant"
     text: str | None = None
     tool_calls: tuple[ModelToolCall, ...] = ()
+    # The provider's own content blocks for this turn (e.g. including thinking blocks),
+    # sent back unchanged when present. Some providers reject edited history.
+    provider_content: tuple[dict[str, Any], ...] = ()
 
 
 class ToolResultsMessage(DomainModel):
@@ -72,6 +75,7 @@ class ModelResponse(DomainModel):
     usage: TokenUsage | None  # None when the provider did not report usage
     response_id: str | None = None
     model: str | None = None  # the model id the provider says it used
+    provider_content: tuple[dict[str, Any], ...] = ()  # raw content blocks, for replay
 
 
 class ModelError(AgentBenchError):

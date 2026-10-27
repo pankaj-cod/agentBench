@@ -20,12 +20,16 @@ from agentbench.domain.models import DomainModel, Slug
 
 
 class DecodingSettings(DomainModel):
-    """Sampling settings sent to the model. None means "provider default" and is not
-    sent at all, so the request says exactly what was chosen."""
+    """Generation settings sent to the model. None means "provider default" and is not
+    sent at all, so the request says exactly what was chosen.
 
-    max_output_tokens: int = Field(default=1024, ge=1, le=64_000)
-    temperature: float | None = Field(default=None, ge=0, le=1)
-    top_p: float | None = Field(default=None, gt=0, le=1)
+    There is deliberately no temperature / top_p: current Claude models reject sampling
+    parameters, so behaviour is tuned with `effort` instead. Even so, live model output
+    is not deterministic.
+    """
+
+    max_output_tokens: int = Field(default=16_000, ge=1, le=64_000)
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     stop_sequences: tuple[str, ...] = ()
 
 

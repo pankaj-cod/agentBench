@@ -152,7 +152,11 @@ def _replay_step(step: HistoryStep) -> list[Message]:
     results = [_result(first.id, step.observation)]
     results += [ToolResultContent(call_id=c.id, content=NOT_EXECUTED, is_error=True) for c in rest]
     return [
-        AssistantMessage(text=response.text, tool_calls=response.tool_calls),
+        AssistantMessage(
+            text=response.text,
+            tool_calls=response.tool_calls,
+            provider_content=response.provider_content,
+        ),
         ToolResultsMessage(results=tuple(results)),
     ]
 

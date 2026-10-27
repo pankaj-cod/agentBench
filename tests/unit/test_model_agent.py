@@ -252,7 +252,7 @@ def test_config_hash_covers_behaviour_but_not_the_label() -> None:
     new_prompt = CONFIG.model_copy(
         update={"prompt": PromptTemplate(id="inventory", version="2", system="Use the tools.")}
     )
-    new_decoding = CONFIG.model_copy(update={"decoding": DecodingSettings(temperature=0.0)})
+    new_decoding = CONFIG.model_copy(update={"decoding": DecodingSettings(effort="low")})
     new_model = CONFIG.model_copy(update={"model": "fake-model-2"})
     assert relabelled.config_hash == CONFIG.config_hash
     hashes = {c.config_hash for c in (CONFIG, new_prompt, new_decoding, new_model)}
