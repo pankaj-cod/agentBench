@@ -1,0 +1,21 @@
+# Local development database. The credentials below are development defaults for a
+# server that only listens on 127.0.0.1; never reuse them anywhere else.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: agentbench
+      POSTGRES_PASSWORD: agentbench
+      POSTGRES_DB: agentbench
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentbench -d agentbench"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
