@@ -4,9 +4,14 @@
     agentbench show <run-id> [--json]
     agentbench bench <benchmark.json> --label NAME [--max-steps N] [--save] [--output FILE]
     agentbench compare <baseline-summary.json> <candidate-summary.json> [--output FILE]
+    agentbench replay <run-id> --mode trace|recorded|live [--agent-config FILE] [--save]
 
-`run`/`show` exit with 0 if the run COMPLETED and 1 otherwise. `bench`/`compare` exit
-with 0 on success and 1 if the input cannot be used. Usage errors exit with 2.
+`bench --agent-config FILE` evaluates a model agent instead of the rule-based agent.
+Live model calls need provider credentials in the environment (see .env.example).
+
+`run`/`show` exit with 0 if the run COMPLETED and 1 otherwise. `bench`/`compare`/
+`replay` exit with 0 on success and 1 if the input cannot be used. Usage errors exit
+with 2.
 """
 
 import argparse
@@ -18,6 +23,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any, TextIO
 
+from agentbench.agents.base import Agent
+from agentbench.agents.model_agent import ModelAgent
 from agentbench.agents.rule_based import RuleBasedAgent
 from agentbench.benchmarks.service import (
     AgentConfig,
@@ -25,11 +32,15 @@ from agentbench.benchmarks.service import (
     BenchmarkRunner,
     load_benchmark,
 )
+from agentbench.domain.agent_config import ModelAgentConfig
+from agentbench.domain.benchmark import TestCase
 from agentbench.domain.enums import AgentRunStatus, TraceEventType
 from agentbench.domain.models import RunLimits, RunResult, Task, TraceEvent
 from agentbench.evaluation.comparison import ComparisonError, compare
 from agentbench.evaluation.engine import EvaluationEngine
 from agentbench.evaluation.metrics import BenchmarkSummary
+from agentbench.experiments.replay import ReplayError, ReplayService, config_from_run
+from agentbench.llm.base import ModelAdapter
 from agentbench.persistence.db import create_db_engine, create_session_factory, database_url
 from agentbench.persistence.uow import UnitOfWork
 from agentbench.reports import render_comparison, render_summary
@@ -46,6 +57,8 @@ def main(argv: list[str] | None = None, out: TextIO = sys.stdout) -> int:
         return _bench(args, out)
     if args.command == "compare":
         return _compare(args, out)
+    if args.command == "replay":
+        return _replay(args, out)
     if args.command == "run":
         result = asyncio.run(_run(args))
     else:
@@ -82,12 +95,35 @@ def _parser() -> argparse.ArgumentParser:
     bench.add_argument("--max-steps", type=int, default=10)
     bench.add_argument("--save", action="store_true", help="save runs and evaluations")
     bench.add_argument("--output", type=Path, help="write the summary as JSON")
+    bench.add_argument(
+        "--agent-config", type=Path, help="evaluate a model agent with this configuration"
+    )
 
     compare_cmd = commands.add_parser("compare", help="compare two benchmark summaries")
     compare_cmd.add_argument("baseline", type=Path)
     compare_cmd.add_argument("candidate", type=Path)
     compare_cmd.add_argument("--output", type=Path, help="write the comparison as JSON")
+
+    replay = commands.add_parser("replay", help="replay or re-execute a saved model run")
+    replay.add_argument("run_id", type=uuid.UUID)
+    replay.add_argument("--mode", choices=["trace", "recorded", "live"], required=True)
+    replay.add_argument(
+        "--agent-config", type=Path, help="live mode only: use this configuration instead"
+    )
+    replay.add_argument("--save", action="store_true", help="save the new run and evaluation")
     return parser
+
+
+def load_agent_config(path: Path) -> ModelAgentConfig:
+    return ModelAgentConfig.model_validate_json(path.read_text())
+
+
+def adapter_for(config: ModelAgentConfig) -> ModelAdapter:
+    if config.provider == "anthropic":
+        from agentbench.llm.anthropic_adapter import AnthropicAdapter
+
+        return AnthropicAdapter()
+    raise ValueError(f"provider {config.provider!r} cannot be used from the command line")
 
 
 def _bench(args: argparse.Namespace, out: TextIO) -> int:
@@ -100,7 +136,22 @@ def _bench(args: argparse.Namespace, out: TextIO) -> int:
     if args.save:
         uow_factory = partial(UnitOfWork, create_session_factory(create_db_engine(database_url())))
     runner = BenchmarkRunner(AgentRunner(default_registry()), EvaluationEngine(), uow_factory)
-    config = AgentConfig(args.label, RuleBasedAgent, RunLimits(max_steps=args.max_steps))
+    limits = RunLimits(max_steps=args.max_steps)
+    make_agent: Any = RuleBasedAgent
+    if args.agent_config:
+        try:
+            model_config = load_agent_config(args.agent_config).model_copy(
+                update={"label": args.label}
+            )
+            adapter = adapter_for(model_config)
+        except (OSError, ValueError) as exc:
+            print(f"cannot use agent config: {exc}", file=sys.stderr)
+            return 1
+
+        def make_agent() -> Agent:
+            return ModelAgent(model_config, adapter)
+
+    config = AgentConfig(args.label, make_agent, limits)
     summary = asyncio.run(runner.run(benchmark, config))
     if args.output:
         args.output.write_text(summary.model_dump_json(indent=2) + "\n")
@@ -119,6 +170,48 @@ def _compare(args: argparse.Namespace, out: TextIO) -> int:
     if args.output:
         args.output.write_text(comparison.model_dump_json(indent=2) + "\n")
     out.write(render_comparison(comparison))
+    return 0
+
+
+def _replay(args: argparse.Namespace, out: TextIO) -> int:
+    sessions = create_session_factory(create_db_engine(database_url()))
+    with UnitOfWork(sessions) as uow:
+        run = uow.agent_runs.get(args.run_id)
+        evaluations = uow.evaluations.list_for_run(args.run_id) if run else []
+    if run is None:
+        print(f"run not found: {args.run_id}", file=sys.stderr)
+        return 1
+    if not evaluations:
+        print("run has no stored evaluation, so its criteria are unknown", file=sys.stderr)
+        return 1
+    case = TestCase(
+        key=run.task.key,
+        prompt=run.task.prompt,
+        allowed_tools=run.task.allowed_tools,
+        context=run.task.context,
+        expectations=evaluations[-1].expectations,
+    )
+    service = ReplayService(AgentRunner(default_registry()), EvaluationEngine())
+    try:
+        if args.mode == "trace":
+            result = service.replay_trace(run, case)
+        elif args.mode == "recorded":
+            result = asyncio.run(service.reexecute_with_recorded_responses(run, case))
+        else:
+            new_config = load_agent_config(args.agent_config) if args.agent_config else None
+            adapter = adapter_for(new_config or config_from_run(run))
+            result = asyncio.run(service.reexecute_live(run, case, adapter, new_config))
+    except (ReplayError, ValueError) as exc:
+        print(f"cannot replay: {exc}", file=sys.stderr)
+        return 1
+    if args.save and result.new_run is not None:
+        with UnitOfWork(sessions) as uow:
+            uow.agent_runs.add(result.new_run)
+            uow.evaluations.save(result.evaluation)
+            uow.commit()
+    summary = result.model_dump(mode="json", exclude={"new_run"})
+    summary["new_run_id"] = str(result.new_run.run_id) if result.new_run else None
+    out.write(json.dumps(summary, indent=2) + "\n")
     return 0
 
 

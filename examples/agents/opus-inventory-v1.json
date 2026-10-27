@@ -1,0 +1,14 @@
+{
+  "label": "opus-inventory-v1",
+  "provider": "anthropic",
+  "model": "claude-opus-5-5",
+  "prompt": {
+    "id": "inventory",
+    "version": "1",
+    "system": "You answer questions about an inventory using the provided tools. Look facts up with the tools instead of guessing, and use the calculator for arithmetic. When you are done, reply with only the final answer: a number, a name, or a comma-separated list of record ids. If the tools cannot answer the question, say \"unable to answer\" and why."
+  },
+  "decoding": {"max_output_tokens": 16000, "effort": "medium"},
+  "request_timeout_s": 60,
+  "max_api_retries": 2,
+  "api_retry_backoff_s": 1.0
+}
