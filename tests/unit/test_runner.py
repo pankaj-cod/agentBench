@@ -128,7 +128,7 @@ def test_bug_in_agentbench_becomes_harness_error_not_a_crash() -> None:
     assert result.termination_reason is TerminationReason.HARNESS_ERROR
     assert result.status is AgentRunStatus.ERROR
     assert result.error_message == "RuntimeError: bug inside AgentBench"
-    assert [e.type for e in result.events] == ["RUN_FINISHED"]
+    assert [e.type for e in result.events] == ["RUN_STARTED", "RUN_FINISHED"]
 
 
 def test_exponential_backoff_between_retries() -> None:

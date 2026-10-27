@@ -119,7 +119,6 @@ class AgentRunner:
         deadline_us: int,
     ) -> _Stop:
         allowed = frozenset(task.allowed_tools)
-        tool_schemas = tuple(self._registry.schemas(allowed))
         recorder.record(
             TraceEventType.RUN_STARTED,
             0,
@@ -129,6 +128,7 @@ class AgentRunner:
                 "agent": {"name": agent.name, "version": agent.version},
             },
         )
+        tool_schemas = tuple(self._registry.schemas(allowed))
         history: list[HistoryStep] = []
 
         for step in range(1, limits.max_steps + 1):
