@@ -132,6 +132,15 @@ def test_numeric_answer_tolerance(given: str, passed: bool) -> None:
         assert result.failure_category is FailureCategory.WRONG_ANSWER
 
 
+@pytest.mark.parametrize(("given", "passed"), [("10.5", True), ("9.5", True), ("10.75", False)])
+def test_numeric_tolerance_boundary_is_inclusive(given: str, passed: bool) -> None:
+    # 10, 0.5, 10.5 and 9.5 are exact in binary floating point, so this tests the
+    # boundary itself rather than rounding noise.
+    test_case = case(final_answer=NumericAnswer(value=10, tolerance=0.5))
+    result = score(test_case, ScriptedAgent([answer(given)]))
+    assert (result.outcome is EvaluationOutcome.PASSED) is passed
+
+
 @pytest.mark.parametrize("given", ["about 20.4", "20.4 units", "nan", "inf", ""])
 def test_numeric_answer_must_be_exactly_a_finite_number(given: str) -> None:
     test_case = case(final_answer=NumericAnswer(value=20.4, tolerance=1))
