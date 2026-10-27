@@ -27,6 +27,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from agentbench.domain.enums import AgentRunStatus, TerminationReason, TraceEventType
+from agentbench.domain.evaluation import EvaluationOutcome, FailureCategory, FailureSource
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -75,6 +76,11 @@ class AgentRunRow(Base):
             "step_count >= 0 AND tool_call_count >= 0 AND duration_us >= 0", name="nonnegative"
         ),
         CheckConstraint("finished_at >= started_at", name="time_order"),
+        CheckConstraint(
+            "(input_tokens IS NULL OR input_tokens >= 0)"
+            " AND (output_tokens IS NULL OR output_tokens >= 0)",
+            name="tokens_nonnegative",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
@@ -92,6 +98,9 @@ class AgentRunRow(Base):
     step_count: Mapped[int] = mapped_column(Integer)
     tool_call_count: Mapped[int] = mapped_column(Integer)
     duration_us: Mapped[int] = mapped_column(BigInteger)
+    # NULL means "not reported", which is different from 0.
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
     started_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ)
     finished_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
@@ -117,3 +126,44 @@ class TraceEventRow(Base):
     occurred_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ)
     elapsed_us: Mapped[int] = mapped_column(BigInteger)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class EvaluationResultRow(Base):
+    """One verdict on one run by one evaluator version. Written once; re-scoring with a
+    new evaluator version adds a row and never overwrites an old one."""
+
+    __tablename__ = "evaluation_result"
+    __table_args__ = (
+        UniqueConstraint("agent_run_id", "evaluator_version"),
+        CheckConstraint(
+            "(outcome = 'PASSED' AND failure_category IS NULL AND failure_source IS NULL)"
+            " OR (outcome = 'FAILED' AND failure_category IS NOT NULL"
+            " AND failure_source = 'AGENT')"
+            " OR (outcome = 'INVALID' AND failure_category IS NOT NULL"
+            " AND failure_source = 'INFRASTRUCTURE')",
+            name="outcome_consistent",
+        ),
+        CheckConstraint(
+            "(failure_category IN ('HARNESS_ERROR', 'TOOL_FAILURE'))"
+            " = (failure_source = 'INFRASTRUCTURE')",
+            name="category_matches_source",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    agent_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_run.id", ondelete="CASCADE"))
+    evaluator_version: Mapped[str] = mapped_column(String(50))
+    pricing_version: Mapped[str | None] = mapped_column(String(50))
+    case_key: Mapped[str] = mapped_column(String(100))
+    outcome: Mapped[EvaluationOutcome] = mapped_column(str_enum(EvaluationOutcome, "outcome"))
+    failure_category: Mapped[FailureCategory | None] = mapped_column(
+        str_enum(FailureCategory, "failure_category")
+    )
+    failure_source: Mapped[FailureSource | None] = mapped_column(
+        str_enum(FailureSource, "failure_source")
+    )
+    explanation: Mapped[str] = mapped_column(Text)
+    checks: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    expectations: Mapped[dict[str, Any]] = mapped_column(JSONB)  # the criteria that were applied
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())

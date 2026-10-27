@@ -3,8 +3,17 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from agentbench.domain.benchmark import Expectations
+from agentbench.domain.errors import AgentBenchError
+from agentbench.domain.evaluation import CheckResult, Evaluation, RunMetrics
 from agentbench.domain.models import RunLimits, RunResult, Task, TraceEvent
-from agentbench.persistence.orm import AgentRunRow, TraceEventRow
+from agentbench.persistence.orm import AgentRunRow, EvaluationResultRow, TraceEventRow
+
+
+class EvaluationConflictError(AgentBenchError):
+    """A different evaluation is already stored for the same run and evaluator version:
+    either the evaluator is not deterministic or the criteria changed without a new
+    evaluator version. Both must be fixed, not overwritten."""
 
 
 class AgentRunRepository:
@@ -32,6 +41,8 @@ class AgentRunRepository:
             step_count=result.step_count,
             tool_call_count=result.tool_call_count,
             duration_us=result.duration_us,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
             started_at=result.started_at,
             finished_at=result.finished_at,
             events=[
@@ -68,6 +79,8 @@ class AgentRunRepository:
             started_at=row.started_at,
             finished_at=row.finished_at,
             duration_us=row.duration_us,
+            input_tokens=row.input_tokens,
+            output_tokens=row.output_tokens,
             events=tuple(self.events(run_id)),
         )
 
@@ -90,3 +103,75 @@ class AgentRunRepository:
             )
             for r in rows
         ]
+
+
+class EvaluationRepository:
+    """Stores evaluations. Never commits; the UnitOfWork owns the transaction."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def save(self, evaluation: Evaluation) -> bool:
+        """Store the evaluation unless an identical one exists. Returns True if a row was
+        added. Raises EvaluationConflictError if a *different* evaluation is stored for
+        the same run and evaluator version."""
+        existing = self.get(evaluation.run_id, evaluation.evaluator_version)
+        if existing is None:
+            self._session.add(self._to_row(evaluation))
+            return True
+        if existing != evaluation:
+            raise EvaluationConflictError(
+                f"run {evaluation.run_id} already has a different {evaluation.evaluator_version}"
+                " evaluation"
+            )
+        return False
+
+    def get(self, run_id: uuid.UUID, evaluator_version: str) -> Evaluation | None:
+        row = self._session.scalars(
+            select(EvaluationResultRow).where(
+                EvaluationResultRow.agent_run_id == run_id,
+                EvaluationResultRow.evaluator_version == evaluator_version,
+            )
+        ).one_or_none()
+        return None if row is None else self._to_domain(row)
+
+    def list_for_run(self, run_id: uuid.UUID) -> list[Evaluation]:
+        rows = self._session.scalars(
+            select(EvaluationResultRow)
+            .where(EvaluationResultRow.agent_run_id == run_id)
+            .order_by(EvaluationResultRow.evaluator_version)
+        )
+        return [self._to_domain(r) for r in rows]
+
+    @staticmethod
+    def _to_row(e: Evaluation) -> EvaluationResultRow:
+        return EvaluationResultRow(
+            id=uuid.uuid4(),
+            agent_run_id=e.run_id,
+            evaluator_version=e.evaluator_version,
+            pricing_version=e.pricing_version,
+            case_key=e.case_key,
+            outcome=e.outcome,
+            failure_category=e.failure_category,
+            failure_source=e.failure_source,
+            explanation=e.explanation,
+            checks=[c.model_dump(mode="json") for c in e.checks],
+            metrics=e.metrics.model_dump(mode="json"),
+            expectations=e.expectations.model_dump(mode="json"),
+        )
+
+    @staticmethod
+    def _to_domain(row: EvaluationResultRow) -> Evaluation:
+        return Evaluation(
+            run_id=row.agent_run_id,
+            case_key=row.case_key,
+            evaluator_version=row.evaluator_version,
+            pricing_version=row.pricing_version,
+            outcome=row.outcome,
+            failure_category=row.failure_category,
+            failure_source=row.failure_source,
+            explanation=row.explanation,
+            checks=tuple(CheckResult.model_validate(c) for c in row.checks),
+            metrics=RunMetrics.model_validate(row.metrics),
+            expectations=Expectations.model_validate(row.expectations),
+        )

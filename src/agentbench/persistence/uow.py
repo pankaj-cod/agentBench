@@ -3,7 +3,7 @@ from typing import Self
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from agentbench.persistence.repositories import AgentRunRepository
+from agentbench.persistence.repositories import AgentRunRepository, EvaluationRepository
 
 
 class UnitOfWork:
@@ -16,6 +16,7 @@ class UnitOfWork:
     """
 
     agent_runs: AgentRunRepository
+    evaluations: EvaluationRepository
 
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
@@ -23,6 +24,7 @@ class UnitOfWork:
     def __enter__(self) -> Self:
         self._session = self._session_factory()
         self.agent_runs = AgentRunRepository(self._session)
+        self.evaluations = EvaluationRepository(self._session)
         return self
 
     def __exit__(

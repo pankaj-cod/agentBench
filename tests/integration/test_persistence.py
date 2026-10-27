@@ -221,6 +221,9 @@ def test_valid_raw_rows_are_accepted(session_factory: sessionmaker[Session]) -> 
         ({"final_answer": None}, "ck_agent_run_completed_has_answer"),
         ({"step_count": -1}, "ck_agent_run_nonnegative"),
         ({"finished_at": T0 - timedelta(seconds=1)}, "ck_agent_run_time_order"),
+        # Added in migration 0002 by hand; autogenerate would have missed it.
+        ({"input_tokens": -1}, "ck_agent_run_tokens_nonnegative"),
+        ({"output_tokens": -5}, "ck_agent_run_tokens_nonnegative"),
         # An unknown enum value also breaks status_matches_reason. PostgreSQL checks
         # CHECK constraints in alphabetical order of name and reports only the first
         # failure, so either name proves the row was rejected.
