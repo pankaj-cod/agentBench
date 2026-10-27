@@ -35,6 +35,24 @@ class _Stop:
 class _Counters:
     step_count: int = 0  # agent decisions requested
     tool_call_count: int = 0  # tool-call decisions, valid or not; retries are not counted
+    decisions: int = 0  # decisions actually received
+    decisions_with_usage: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def add_usage(self, decision: ToolCallDecision | FinalAnswerDecision) -> None:
+        self.decisions += 1
+        if decision.usage is not None:
+            self.decisions_with_usage += 1
+            self.input_tokens += decision.usage.input_tokens
+            self.output_tokens += decision.usage.output_tokens
+
+    def token_totals(self) -> tuple[int | None, int | None]:
+        """Totals only when every decision reported usage; a partial sum would
+        understate usage, so it is reported as unavailable instead."""
+        if self.decisions == 0 or self.decisions_with_usage < self.decisions:
+            return None, None
+        return self.input_tokens, self.output_tokens
 
 
 class AgentRunner:
@@ -79,6 +97,7 @@ class AgentRunner:
         except Exception as exc:
             stop = _Stop(TerminationReason.HARNESS_ERROR, error_message=_describe(exc))
 
+        input_tokens, output_tokens = counters.token_totals()
         recorder.record(
             TraceEventType.RUN_FINISHED,
             counters.step_count,
@@ -89,6 +108,8 @@ class AgentRunner:
                 "error_message": stop.error_message,
                 "step_count": counters.step_count,
                 "tool_call_count": counters.tool_call_count,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
             },
         )
         return RunResult(
@@ -106,6 +127,8 @@ class AgentRunner:
             started_at=started_at,
             finished_at=self._clock.now(),
             duration_us=self._clock.monotonic_us() - start_us,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             events=recorder.close(),
         )
 
@@ -152,6 +175,7 @@ class AgentRunner:
             if isinstance(payload, str):
                 return _Stop(TerminationReason.AGENT_ERROR, error_message=payload)
             recorder.record(TraceEventType.AGENT_DECISION, step, payload)
+            counters.add_usage(decision)
 
             if isinstance(decision, FinalAnswerDecision):
                 recorder.record(TraceEventType.FINAL_ANSWER, step, {"answer": decision.answer})

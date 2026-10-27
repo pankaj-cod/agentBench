@@ -15,6 +15,7 @@ from agentbench.domain.models import (
     RunLimits,
     RunResult,
     Task,
+    TokenUsage,
     ToolCallDecision,
 )
 from agentbench.runner.runner import AgentRunner
@@ -180,3 +181,37 @@ def test_duration_and_timestamps_come_from_the_clock() -> None:
     result = asyncio.run(runner.run(TASK, TakesTwoSeconds()))
     assert result.duration_us == 2_000_000
     assert (result.finished_at - result.started_at).total_seconds() == 2
+
+
+def usage(model: str = "example-model", inp: int = 100, out: int = 10) -> TokenUsage:
+    return TokenUsage(model=model, input_tokens=inp, output_tokens=out)
+
+
+def test_token_totals_when_every_decision_reports_usage() -> None:
+    agent = ScriptedAgent(
+        [
+            ToolCallDecision(
+                tool="lookup_record", arguments={"record_id": "A-12"}, usage=usage(inp=100)
+            ),
+            FinalAnswerDecision(answer="120", usage=usage(inp=150, out=5)),
+        ]
+    )
+    result = run(agent)
+    assert (result.input_tokens, result.output_tokens) == (250, 15)
+    assert result.events[-1].payload["input_tokens"] == 250
+
+
+def test_partial_usage_is_unavailable_not_a_partial_sum() -> None:
+    agent = ScriptedAgent(
+        [
+            ToolCallDecision(tool="lookup_record", arguments={"record_id": "A-12"}, usage=usage()),
+            FinalAnswerDecision(answer="120"),  # reported nothing
+        ]
+    )
+    result = run(agent)
+    assert (result.input_tokens, result.output_tokens) == (None, None)
+
+
+def test_agent_without_usage_reports_none_not_zero() -> None:
+    result = run(RuleBasedAgent())
+    assert (result.input_tokens, result.output_tokens) == (None, None)

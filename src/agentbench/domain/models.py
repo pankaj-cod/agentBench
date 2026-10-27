@@ -30,16 +30,27 @@ class Task(DomainModel):
     context: dict[str, Any] = Field(default_factory=dict)
 
 
+class TokenUsage(DomainModel):
+    """Model usage reported by an agent for one decision. Agents that use no model
+    report nothing (None), which is different from reporting zero tokens."""
+
+    model: str = Field(min_length=1, max_length=100)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+
+
 class ToolCallDecision(DomainModel):
     kind: Literal["tool_call"] = "tool_call"
     tool: str
     # Untrusted: whatever the agent produced. The ToolRegistry validates it.
     arguments: Any = Field(default_factory=dict)
+    usage: TokenUsage | None = None
 
 
 class FinalAnswerDecision(DomainModel):
     kind: Literal["final_answer"] = "final_answer"
     answer: str
+    usage: TokenUsage | None = None
 
 
 Decision = Annotated[ToolCallDecision | FinalAnswerDecision, Field(discriminator="kind")]
@@ -102,6 +113,9 @@ class RunResult(DomainModel):
     started_at: AwareDatetime
     finished_at: AwareDatetime
     duration_us: int = Field(ge=0)
+    # Totals over all decisions, or None unless every decision reported usage.
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
     events: tuple[TraceEvent, ...]
 
     @model_validator(mode="after")
